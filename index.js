@@ -4,38 +4,66 @@ function parseSensorData(packet, tracking = {}) {
   const requestId = tracking.requestId || 'anonymous';
   const source = tracking.source || 'unknown';
 
-  // Fast path: reject falsy without allocating a result object
-  if (!packet) {
+  try {
+    // Fast path: reject falsy without allocating a result object
+    if (!packet) {
+      const durationNs = Number(process.hrtime.bigint() - start);
+      console.log(JSON.stringify({
+        event: 'parseSensorData',
+        status: 'empty_packet',
+        requestId,
+        source,
+        durationNs,
+        timestamp: Date.now()
+      }));
+      return null;
+    }
+
+    if (packet.value === undefined || packet.value === null) {
+      throw new Error('Missing sensor value');
+    }
+
+    // Prefer unary plus over parseFloat; hoist fields to locals (speed + memory)
+    const id = packet.id ?? 'unknown';
+    const value = +packet.value;
+    if (Number.isNaN(value)) {
+      throw new Error('Invalid sensor value: not a number');
+    }
+    const timestamp = Date.now();
+    const result = { id, value, timestamp };
+
     const durationNs = Number(process.hrtime.bigint() - start);
     console.log(JSON.stringify({
       event: 'parseSensorData',
-      status: 'empty_packet',
+      status: 'ok',
       requestId,
       source,
+      sensorId: id,
+      durationNs,
+      timestamp
+    }));
+
+    return result;
+  } catch (err) {
+    // Guardrail: log and return a safe fallback instead of crashing callers
+    const durationNs = Number(process.hrtime.bigint() - start);
+    console.error('parseSensorData failed:', err.message);
+    console.log(JSON.stringify({
+      event: 'parseSensorData',
+      status: 'error',
+      requestId,
+      source,
+      error: err.message,
       durationNs,
       timestamp: Date.now()
     }));
-    return null;
+    return {
+      id: (packet && packet.id) || 'unknown',
+      value: 0,
+      timestamp: Date.now(),
+      error: err.message
+    };
   }
-
-  // Prefer unary plus over parseFloat; hoist fields to locals (speed + memory)
-  const id = packet.id;
-  const value = +packet.value;
-  const timestamp = Date.now();
-  const result = { id, value, timestamp };
-
-  const durationNs = Number(process.hrtime.bigint() - start);
-  console.log(JSON.stringify({
-    event: 'parseSensorData',
-    status: 'ok',
-    requestId,
-    source,
-    sensorId: id,
-    durationNs,
-    timestamp
-  }));
-
-  return result;
 }
 
 module.exports = { parseSensorData };
